@@ -20,6 +20,5 @@ def poly_fit(v):
     return lambda x: numpy.dot(numpy.array([x**i for i in range(n)]), coeffs)
 
 
-f = poly_fit([i for i in range(10)])
+f = poly_fit([i**2 for i in range(10)])
 print [f(i) for i in range(20)]
-
