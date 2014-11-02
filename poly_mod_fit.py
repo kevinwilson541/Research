@@ -13,12 +13,9 @@ def poly_mod_fit(v, p):
     for i in range(n):
         num_mat[i][n] = numpy.int32(v[i] % p)
 
-    print num_mat
-
     gpu_mat = gpuarray.to_gpu(num_mat)
     gme.gaussian_mod_elimination(gpu_mat, p)
     num_mat = gpu_mat.get()
-    print num_mat
     coeffs = numpy.array([num_mat[i][n] for i in range(n)])
     return lambda x: numpy.dot(numpy.array([x**i % p for i in range(n)]), coeffs)
 
