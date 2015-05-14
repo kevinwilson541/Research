@@ -25,8 +25,10 @@ cdef class ModPoly:
     def __init__(self, mod, coeffs=dict([((0,0,0), 0)]), poly=None):
         self.__mod = mod
         self.__valTable = dict()
+        # define from polynomial
         if poly:
             self.from_polynomial(poly)
+        # define from coefficient dictionary
         else:
             self.__coeffs = coeffs
             self.__initialize()
@@ -50,6 +52,12 @@ cdef class ModPoly:
         cdef tuple elem
         cdef tuple newKey
         cdef dict aux = dict()
+        """
+        do reduction of powers in coeffs:
+            1. if part of elem is nonzero and reduces to 0, then bump
+            to self.__mod-1 so that we preserve behavior at x||y||z=0
+            2. add to new set of coeffs, and redefine self.__coeffs
+        """
         for elem in keys:
             newKey = (elem[0] % (self.__mod-1) if elem[0] == 0 or elem[0] % (self.__mod-1) != 0 else self.__mod-1,
                     elem[1] % (self.__mod-1) if elem[1] == 0 or elem[1] % (self.__mod-1) != 0 else self.__mod-1,
@@ -84,11 +92,6 @@ cdef class ModPoly:
                 for k in xrange(self.__mod):
                     total = 0
                     for elem in coeffs:
-                        #tmp = list(elem)
-                        #tmp[0] = 0 if i != 0 and elem[0] == self.__mod-1 else tmp[0]
-                        #tmp[1] = 0 if j != 0 and elem[1] == self.__mod-1 else tmp[1]
-                        #tmp[2] = 0 if k != 0 and elem[2] == self.__mod-1 else tmp[2]
-                        #total += coeffs[elem]*i**tmp[0]*j**tmp[1]*k**tmp[2] % self.__mod
                         total += coeffs[elem]*i**elem[0]*j**elem[1]*k**elem[2] % self.__mod
                     valTable[(i,j,k)] = total % self.__mod
 
@@ -119,11 +122,13 @@ cdef class ModPoly:
         assert self.__mod == rhs.__mod
         cdef dict coeffs = dict()
         cdef tuple elem
+        # go through all coeffs in this polynomial
         for elem in self.__coeffs:
             if rhs.__coeffs.has_key(elem):
                 coeffs[elem] = self.__coeffs[elem]+rhs.__coeffs[elem] % self.__mod
             else:
                 coeffs[elem] = self.__coeffs[elem]
+        # then iterate through all coeffs in rhs
         for elem in rhs.__coeffs:
             if not coeffs.has_key(elem):
                 coeffs[elem] = rhs.__coeffs[elem]
@@ -133,11 +138,13 @@ cdef class ModPoly:
         assert self.__mod == rhs.__mod
         cdef dict coeffs = dict()
         cdef tuple elem
+        # go through all coeffs in this polynomial
         for elem in self.__coeffs:
             if rhs.__coeffs.has_key(elem):
                 coeffs[elem] = self.__coeffs[elem] - rhs.__coeffs[elem] % self.__mod
             else:
                 coeffs[elem] = self.__coeffs[elem]
+        # then iterate through all coeffs in rhs
         for elem in rhs.__coeffs:
             if not coeffs.has_key(elem):
                 coeffs[elem] = -1*rhs.__coeffs[elem] % self.__mod
@@ -158,6 +165,7 @@ cdef class ModPoly:
         return ModPoly(self.__mod, coeffs)
 
     def __richcmp__(self, ModPoly rhs, int op):
+        # cython doesn't allow __eq__, __ne__, so use __richcmp__
         assert self.__mod == rhs.__mod
         if (op == 2):
             return self.__valTable == rhs.__valTable
@@ -173,6 +181,8 @@ cdef class ModPoly:
         return self.__valTable[(x,y,z)] 
 
     def __iadd__(self, ModPoly rhs):
+        # same deal as __add__, only now we operate on self's value table
+        # and coeff table
         assert self.__mod == rhs.__mod
         cdef tuple elem
         for elem in self.__coeffs:
@@ -191,6 +201,8 @@ cdef class ModPoly:
         return self
 
     def __isub__(self, ModPoly rhs):
+        # same deal as __sub__, only now we operate on self's value table
+        # and coeff table
         assert self.__mod == rhs.__mod
         cdef tuple elem
         for elem in self.__coeffs:
@@ -247,7 +259,9 @@ cdef class ModPoly:
         assert getattr(poly, 'dict', None) != None
         self.__mod = poly.base_ring().order()
         poly = poly.parent()(poly)
-
+        
+        # sage returns its own type of tuple for polynomial dicts, so we
+        # convert this tuple to python's tuple for cython tuple use.
         self.__coeffs = dict([(tuple(key[0]), key[1]) for key in poly.dict().items()])
         self.__initialize()
         
