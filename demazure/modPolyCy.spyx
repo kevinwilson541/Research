@@ -1,0 +1,262 @@
+#!/usr/bin/python
+
+from sage.all import var
+
+cdef int invert(int x, int p):
+    x %= p
+    cdef tuple curr = (0,1)
+    cdef tuple prev = (1,0)
+    cdef int q = p / x
+    cdef int r = p % x
+    cdef int u = p
+    cdef int v = x
+    while r != 0:
+        prev, curr = curr, (prev[0] - q*curr[0], prev[1] - q*curr[1])
+        u, v = v, r
+        q = u / v
+        r = u % v
+    return curr[1] % p 
+
+cdef class ModPoly:
+    cdef public int __mod
+    cdef public dict __valTable
+    cdef public dict __coeffs
+    cdef public dict __partials
+    def __init__(self, mod, coeffs=dict([((0,0,0), 0)]), poly=None):
+        self.__mod = mod
+        self.__valTable = dict()
+        if poly:
+            self.from_polynomial(poly)
+        else:
+            self.__coeffs = coeffs
+            self.__initialize()
+
+    def __dealloc__(self):
+        del self.__partials
+        del self.__coeffs
+        del self.__valTable
+            
+    cpdef dict coefficients(self):
+        return self.__coeffs
+
+    cpdef dict table(self):
+        return self.__valTable
+
+    cpdef int modulus(self):
+        return self.__mod
+
+    cdef __initialize(self):
+        cdef list keys = [tuple(key) for key in self.__coeffs.keys()]
+        cdef tuple elem
+        cdef tuple newKey
+        cdef dict aux = dict()
+        for elem in keys:
+            newKey = (elem[0] % (self.__mod-1) if elem[0] == 0 or elem[0] % (self.__mod-1) != 0 else self.__mod-1,
+                    elem[1] % (self.__mod-1) if elem[1] == 0 or elem[1] % (self.__mod-1) != 0 else self.__mod-1,
+                    elem[2] % (self.__mod-1) if elem[2] == 0 or elem[2] % (self.__mod-1) != 0 else self.__mod-1)
+            if not aux.has_key(newKey):
+                aux[newKey] = self.__coeffs[elem]
+            else:
+                aux[newKey] += self.__coeffs[elem]
+            del self.__coeffs[elem]
+        self.__coeffs = aux
+        del aux
+
+        self.__generateValues(self.__valTable, self.__coeffs)
+        self.__partials = {
+            bytes('x'): dict(),
+            bytes('y'): dict(),
+            bytes('z'): dict()
+        }
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+
+    cdef __generateValues(self, dict valTable, dict coeffs):
+        cdef int i = 0
+        cdef int j = 0
+        cdef int k = 0
+        cdef int total = 0
+        cdef tuple elem
+        #cdef list tmp
+        for i in xrange(self.__mod):
+            for j in xrange(self.__mod):
+                for k in xrange(self.__mod):
+                    total = 0
+                    for elem in coeffs:
+                        #tmp = list(elem)
+                        #tmp[0] = 0 if i != 0 and elem[0] == self.__mod-1 else tmp[0]
+                        #tmp[1] = 0 if j != 0 and elem[1] == self.__mod-1 else tmp[1]
+                        #tmp[2] = 0 if k != 0 and elem[2] == self.__mod-1 else tmp[2]
+                        #total += coeffs[elem]*i**tmp[0]*j**tmp[1]*k**tmp[2] % self.__mod
+                        total += coeffs[elem]*i**elem[0]*j**elem[1]*k**elem[2] % self.__mod
+                    valTable[(i,j,k)] = total % self.__mod
+
+    cdef __generatePartial(self, bytes var):
+        cdef dict coeffs = dict()
+        cdef tuple elem
+        for elem in self.__coeffs:
+            if var == 'x':
+                if elem[0] != 0: 
+                    coeffs[(elem[0]-1, elem[1], elem[2])] = elem[0]*self.__coeffs[elem] % self.__mod
+            elif var == 'y':
+                if elem[1] != 0:
+                    coeffs[(elem[0],elem[1]-1, elem[2])] = elem[1]*self.__coeffs[elem] % self.__mod
+            else:
+                if elem[2] != 0:
+                    coeffs[(elem[0], elem[1], elem[2]-1)] = elem[2]*self.__coeffs[elem] % self.__mod
+
+        self.__generateValues(self.__partials[var], coeffs)
+
+    cpdef is_zero(self):
+        cdef tuple elem
+        for elem in self.__valTable:
+            if self.__valTable[elem] != 0:
+                return False
+        return True
+
+    def __add__(self, ModPoly rhs):
+        assert self.__mod == rhs.__mod
+        cdef dict coeffs = dict()
+        cdef tuple elem
+        for elem in self.__coeffs:
+            if rhs.__coeffs.has_key(elem):
+                coeffs[elem] = self.__coeffs[elem]+rhs.__coeffs[elem] % self.__mod
+            else:
+                coeffs[elem] = self.__coeffs[elem]
+        for elem in rhs.__coeffs:
+            if not coeffs.has_key(elem):
+                coeffs[elem] = rhs.__coeffs[elem]
+        return ModPoly(self.__mod, coeffs)
+
+    def __sub__(self, ModPoly rhs):
+        assert self.__mod == rhs.__mod
+        cdef dict coeffs = dict()
+        cdef tuple elem
+        for elem in self.__coeffs:
+            if rhs.__coeffs.has_key(elem):
+                coeffs[elem] = self.__coeffs[elem] - rhs.__coeffs[elem] % self.__mod
+            else:
+                coeffs[elem] = self.__coeffs[elem]
+        for elem in rhs.__coeffs:
+            if not coeffs.has_key(elem):
+                coeffs[elem] = -1*rhs.__coeffs[elem] % self.__mod
+        return ModPoly(self.__mod, coeffs)
+
+    def __mul__(self, int rhs):
+        cdef dict coeffs = dict()
+        cdef tuple elem
+        for elem in self.__coeffs:
+            coeffs[elem] = self.__coeffs[elem]*rhs % self.__mod
+        return ModPoly(self.__mod, coeffs)
+
+    def __div__(self, int rhs):
+        cdef dict coeffs = dict()
+        cdef tuple elem
+        for elem in self.__coeffs:
+            coeffs[elem] = self.__coeffs[elem]*invert(rhs, self.__mod) % self.__mod
+        return ModPoly(self.__mod, coeffs)
+
+    def __richcmp__(self, ModPoly rhs, int op):
+        assert self.__mod == rhs.__mod
+        if (op == 2):
+            return self.__valTable == rhs.__valTable
+        elif (op == 3):
+            return self.__valTable != rhs.__valTable
+        else:
+            raise Exception("Can only make equality-based comparisons.")
+
+    def __call__(self, int x, int y, int z):
+        x %= self.__mod
+        y %= self.__mod
+        z %= self.__mod
+        return self.__valTable[(x,y,z)] 
+
+    def __iadd__(self, ModPoly rhs):
+        assert self.__mod == rhs.__mod
+        cdef tuple elem
+        for elem in self.__coeffs:
+            if rhs.__coeffs.has_key(elem):
+                self.__coeffs[elem] += rhs.__coeffs[elem]
+                self.__coeffs[elem] %= self.__mod
+        for elem in rhs.__coeffs:
+            if not self.__coeffs.has_key(elem):
+                self.__coeffs[elem] = rhs.__coeffs[elem]
+        
+        self.__valTable = dict()
+        self.__generateValues(self.__valTable, self.__coeffs)
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+        return self
+
+    def __isub__(self, ModPoly rhs):
+        assert self.__mod == rhs.__mod
+        cdef tuple elem
+        for elem in self.__coeffs:
+            if rhs.__coeffs.has_key(elem):
+                self.__coeffs[elem] -= rhs.__coeffs[elem]
+                self.__coeffs[elem] %= self.__mod
+        for elem in rhs.__coeffs:
+            if not self.__coeffs.has_key(elem):
+                self.__coeffs[elem] = -1*rhs.__coeffs[elem] % self.__mod
+        
+        self.__valTable = dict()
+        self.__generateValues(self.__valTable, self.__coeffs)
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+        return self
+
+    def __imul__(self, int rhs):
+        cdef tuple elem
+        for elem in self.__coeffs:
+            self.__coeffs[elem] *= rhs
+            self.__coeffs[elem] %= self.__mod
+
+        self.__valTable = dict()
+        self.__generateValues(self.__valTable, self.__coeffs)
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+        return self
+
+    def __idiv__(self, int rhs):
+        cdef tuple elem
+        for elem in self.__coeffs:
+            self.__coeffs[elem] *= invert(rhs, self.__mod)
+            self.__coeffs[elem] %= self.__mod
+
+        self.__valTable = dict()
+        self.__generateValues(self.__valTable, self.__coeffs)
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+        return self
+
+    cpdef polynomial(self):
+        poly = 0
+        cdef tuple elem
+        x, y, z = var('x,y,z')
+        for elem in self.__coeffs:
+            poly += self.__coeffs[elem]*x**elem[0]*y**elem[1]*z**elem[2]
+        return poly
+
+    def from_polynomial(self, poly):
+        assert len(poly.parent().variable_names()) == 3
+        assert getattr(poly, 'dict', None) != None
+        self.__mod = poly.base_ring().order()
+        poly = poly.parent()(poly)
+
+        self.__coeffs = dict([(tuple(key[0]), key[1]) for key in poly.dict().items()])
+        self.__initialize()
+        
+    def divX(self):
+        print "stuff"
+
+    def divY(self):
+        print "stuff"
+
+    def divZ(self):
+        print "stuff"
+
