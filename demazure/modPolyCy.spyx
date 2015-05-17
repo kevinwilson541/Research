@@ -22,6 +22,7 @@ cdef class ModPoly:
     cdef public dict __valTable
     cdef public dict __coeffs
     cdef public dict __partials
+    cdef public dict __variable_names
     def __init__(self, mod, coeffs=dict([((0,0,0), 0)]), poly=None):
         self.__mod = mod
         self.__valTable = dict()
@@ -31,6 +32,7 @@ cdef class ModPoly:
         # define from coefficient dictionary
         else:
             self.__coeffs = coeffs
+            self.__variable_names = {bytes('x'+str(i)): i for i in xrange(len(coeffs.keys()[0]))}
             self.__initialize()
 
     def __dealloc__(self):
@@ -47,11 +49,15 @@ cdef class ModPoly:
     cpdef int modulus(self):
         return self.__mod
 
+    cpdef tuple variable_names(self):
+        return tuple(sorted(self.__variable_names.keys()))
+
     cdef __initialize(self):
         cdef list keys = [tuple(key) for key in self.__coeffs.keys()]
         cdef tuple elem
         cdef tuple newKey
         cdef dict aux = dict()
+
         """
         do reduction of powers in coeffs:
             1. if part of elem is nonzero and reduces to 0, then bump
@@ -59,9 +65,7 @@ cdef class ModPoly:
             2. add to new set of coeffs, and redefine self.__coeffs
         """
         for elem in keys:
-            newKey = (elem[0] % (self.__mod-1) if elem[0] == 0 or elem[0] % (self.__mod-1) != 0 else self.__mod-1,
-                    elem[1] % (self.__mod-1) if elem[1] == 0 or elem[1] % (self.__mod-1) != 0 else self.__mod-1,
-                    elem[2] % (self.__mod-1) if elem[2] == 0 or elem[2] % (self.__mod-1) != 0 else self.__mod-1)
+            newKey = tuple([elem[i]%(self.__mod-1) if elem[i]==0 or elem[i]%(self.__mod-1)!=0 else self.__mod-1 for i in xrange(len(self.__variable_names))])
             if not aux.has_key(newKey):
                 aux[newKey] = self.__coeffs[elem]
             else:
@@ -71,21 +75,15 @@ cdef class ModPoly:
         del aux
 
         self.__generateValues(self.__valTable, self.__coeffs)
-        self.__partials = {
-            bytes('x'): dict(),
-            bytes('y'): dict(),
-            bytes('z'): dict()
-        }
+        self.__partials = {key: {} for key in self.__variable_names}
         cdef bytes part
         for part in self.__partials:
             self.__generatePartial(part)
 
     cdef __generateValues(self, dict valTable, dict coeffs):
-        cdef int i = 0
-        cdef int j = 0
-        cdef int k = 0
         cdef int total = 0
         cdef tuple elem
+        """
         for i in xrange(self.__mod):
             for j in xrange(self.__mod):
                 for k in xrange(self.__mod):
@@ -93,20 +91,38 @@ cdef class ModPoly:
                     for elem in coeffs:
                         total += coeffs[elem]*i**elem[0]*j**elem[1]*k**elem[2] % self.__mod
                     valTable[(i,j,k)] = total % self.__mod
+        """
+        self.__place(valTable, coeffs, [])
+
+    cdef __place(self, dict valTable, dict coeffs, list ls):
+        cdef int i
+        cdef int total = 0
+        cdef int tmp = 1
+        cdef tuple elem
+        if len(ls) == len(self.__variable_names):
+            total = 0
+            for elem in coeffs:
+                tmp = coeffs[elem]
+                for i in xrange(len(elem)):
+                    tmp *= ls[i]**elem[i] % self.__mod
+                total += tmp
+                tmp = 1
+            valTable[tuple(ls)] = total % self.__mod
+        else:
+            for i in xrange(self.__mod):
+                ls.append(i)
+                self.__place(valTable, coeffs, ls)
+                ls.pop()
 
     cdef __generatePartial(self, bytes var):
         cdef dict coeffs = dict()
         cdef tuple elem
+        cdef list tmp
         for elem in self.__coeffs:
-            if var == 'x':
-                if elem[0] != 0: 
-                    coeffs[(elem[0]-1, elem[1], elem[2])] = elem[0]*self.__coeffs[elem] % self.__mod
-            elif var == 'y':
-                if elem[1] != 0:
-                    coeffs[(elem[0],elem[1]-1, elem[2])] = elem[1]*self.__coeffs[elem] % self.__mod
-            else:
-                if elem[2] != 0:
-                    coeffs[(elem[0], elem[1], elem[2]-1)] = elem[2]*self.__coeffs[elem] % self.__mod
+            if elem[self.__variable_names[var]] != 0:
+                tmp = list(elem)
+                tmp[self.__variable_names[var]] -= 1
+                coeffs[tuple(tmp)] = elem[self.__variable_names[var]] * self.__coeffs[elem] % self.__mod
 
         self.__generateValues(self.__partials[var], coeffs)
 
@@ -173,11 +189,10 @@ cdef class ModPoly:
         else:
             raise Exception("Can only make equality-based comparisons.")
 
-    def __call__(self, int x, int y, int z):
-        x %= self.__mod
-        y %= self.__mod
-        z %= self.__mod
-        return self.__valTable[(x,y,z)] 
+    def __call__(self, *arg):
+        assert len(arg) == len(self.__variable_names)
+        ls = [val % self.__mod for val in arg]
+        return self.__valTable[tuple(ls)] 
 
     def __iadd__(self, ModPoly rhs):
         # same deal as __add__, only now we operate on self's value table
@@ -248,16 +263,21 @@ cdef class ModPoly:
     cpdef polynomial(self):
         poly = 0
         cdef tuple elem
-        x, y, z = var('x,y,z')
+        cdef int i
+        variables = var(sorted([p for p in self.__variable_names]))
         for elem in self.__coeffs:
-            poly += self.__coeffs[elem]*x**elem[0]*y**elem[1]*z**elem[2]
+            tmp = self.__coeffs[elem]
+            for i in xrange(len(elem)):
+                tmp *= variables[i]**elem[i]
+            poly += tmp
         return poly
 
     cpdef from_polynomial(self, poly):
-        assert len(poly.parent().variable_names()) == 3
         assert getattr(poly, 'dict', None) != None
         self.__mod = poly.base_ring().order()
         poly = poly.parent()(poly)
+        variables = poly.parent().variable_names()
+        self.__variable_names = {variables[i]: i for i in xrange(len(variables))}
         
         # sage returns its own type of tuple for polynomial dicts, so we
         # convert this tuple to python's tuple for cython tuple use.
@@ -267,16 +287,11 @@ cdef class ModPoly:
     cpdef div(self, bytes var):
         cdef tuple elem
         cdef dict aux = {}
-        cdef dict variables = {
-            'x': 0,
-            'y': 1,
-            'z': 2
-        }
         cdef list newCoeff
         for elem in self.__coeffs.keys():
-            if elem[variables[var]] != 0:
+            if elem[self.__variable_names[var]] != 0:
                 newCoeff = list(elem)
-                newCoeff[variables[var]] -= 1
+                newCoeff[self.__variable_names[var]] -= 1
                 aux[tuple(newCoeff)] = self.__coeffs[elem]
 
             del self.__coeffs[elem]
