@@ -86,7 +86,6 @@ cdef class ModPoly:
         cdef int k = 0
         cdef int total = 0
         cdef tuple elem
-        #cdef list tmp
         for i in xrange(self.__mod):
             for j in xrange(self.__mod):
                 for k in xrange(self.__mod):
@@ -254,7 +253,7 @@ cdef class ModPoly:
             poly += self.__coeffs[elem]*x**elem[0]*y**elem[1]*z**elem[2]
         return poly
 
-    def from_polynomial(self, poly):
+    cpdef from_polynomial(self, poly):
         assert len(poly.parent().variable_names()) == 3
         assert getattr(poly, 'dict', None) != None
         self.__mod = poly.base_ring().order()
@@ -265,12 +264,53 @@ cdef class ModPoly:
         self.__coeffs = dict([(tuple(key[0]), key[1]) for key in poly.dict().items()])
         self.__initialize()
         
-    def divX(self):
-        print "stuff"
+    cpdef div(self, bytes var):
+        cdef tuple elem
+        cdef dict aux = {}
+        cdef dict variables = {
+            'x': 0,
+            'y': 1,
+            'z': 2
+        }
+        cdef list newCoeff
+        for elem in self.__coeffs.keys():
+            if elem[variables[var]] != 0:
+                newCoeff = list(elem)
+                newCoeff[variables[var]] -= 1
+                aux[tuple(newCoeff)] = self.__coeffs[elem]
 
-    def divY(self):
-        print "stuff"
+            del self.__coeffs[elem]
+        self.__coeffs = aux
+        
+        self.__valTable = dict()
+        # generate with coeff table
+        self.__generateValues(self.__valTable, self.__coeffs)
+        # generate with L'Hopital's rule
+        """
+        given that we might use a coeff table, this code wouldn't be necessary. However, we can make a subclass
+        that is solely based off a value table and just return an instance of that class with the new values
+        upon division by x.
 
-    def divZ(self):
-        print "stuff"
+        cdef int total = 0
+        cdef int i
+        cdef int j
+        cdef int k
+        cdef tuple elem
+        for i in xrange(self.__mod):
+            for j in xrange(self.__mod):
+                for k in xrange(self.__mod):
+                    cdef list pnt = (i,j,k) 
+                    if pnt[variables[var]] == 0:
+                        self.__valTable[pnt] = self.__partials[var][pnt]
+                    else:
+                        total = 0
+                        for elem in coeffs:
+                            total += self.__coeffs[elem]*i**elem[0]*j**elem[1]*k**elem[2] % self.__mod
+                        self.__valTable[pnt] = total % self.__mod
+        """
+
+        cdef bytes part
+        for part in self.__partials:
+            self.__generatePartial(part)
+        return self
 
