@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
-from sage.all import var
+from sage.all import var, PolynomialRing
+from sage.rings.finite_rings.integer_mod_ring import Integers
 
 cdef int invert(int x, int p):
     x %= p
@@ -274,7 +275,7 @@ cdef class ModPoly:
             for i in xrange(len(elem)):
                 tmp *= variables[i]**elem[i]
             poly += tmp
-        return poly
+        return PolynomialRing(Integers(self.__mod), str(self.__variable_names.keys())[1:-1], len(self.__variable_names))(poly)
 
     cpdef from_polynomial(self, poly):
         assert getattr(poly, 'dict', None) != None
