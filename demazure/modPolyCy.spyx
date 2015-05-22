@@ -264,7 +264,11 @@ cdef class ModPoly:
         poly = 0
         cdef tuple elem
         cdef int i
-        variables = var(sorted([p for p in self.__variable_names]))
+        if len(self.__variable_names) != 1:
+            variables = var(sorted([p for p in self.__variable_names]))
+        else:
+            variables = [var(self.__variable_names.keys()[0])]
+            variables = tuple(variables)
         for elem in self.__coeffs:
             tmp = self.__coeffs[elem]
             for i in xrange(len(elem)):
