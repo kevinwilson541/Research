@@ -1,0 +1,79 @@
+#!/usr/bin/python
+
+from sage.all import var
+from sage.rings.finite_rings.integer_mod_ring import IntegerModRing
+from sage.rings.integer import Integer
+from modPolyCy import ModPoly
+
+cdef class specGroup:
+    cdef public int __mod
+    cdef public int __m
+    cdef public dict __opts 
+    cdef public int __q
+    cdef public tuple __vars
+    
+    def __init__(self, mod, m):
+        assert Integer(mod).is_prime() and (mod-1)%(2*m) == 0
+        self.__mod = mod
+        self.__m = m
+        self.__q = IntegerModRing(mod).multiplicative_generator()**((mod-1)/2/m)
+        st1 = ModPoly(mod, coeffs={(1,0,0): 1})
+        st2 = ModPoly(mod, coeffs={(0,1,0): 1})
+        st3 = ModPoly(mod, coeffs={(0,0,1): 1})
+        self.__vars = (st1, st2, st3)
+        self.__opts = {self.__vars: 'I'}
+        self.__initialize()
+        
+    cdef __initialize(self):
+        cdef tuple elem
+        cdef list left = []
+        cdef list tmp
+        cdef int q = self.__q
+        if not self.__opts.has_key(self.sigx(self.__vars)):
+            self.__opts[self.sigx(self.__vars)] = 'sigx o I' 
+            left.append(self.sigx(self.__vars))
+        if not self.__opts.has_key(self.sigy(self.__vars)):
+            self.__opts[self.sigy(self.__vars)] = 'sigy o I'
+            left.append(self.sigy(self.__vars))
+        if not self.__opts.has_key(self.sigz(self.__vars)):
+            self.__opts[self.sigz(self.__vars)] = 'sigz o I'
+            left.append(self.sigz(self.__vars))
+
+        while len(left) != 0:
+            tmp, left = left, []
+            for elem in tmp:
+                if not self.__opts.has_key(self.sigx(elem)):
+                    self.__opts[self.sigx(elem)] = 'sigx o ' + self.__opts[elem]
+                    left.append(self.sigx(elem))
+                if not self.__opts.has_key(self.sigy(elem)):
+                    self.__opts[self.sigy(elem)] = 'sigy o ' + self.__opts[elem]
+                    left.append(self.sigy(elem))
+                if not self.__opts.has_key(self.sigz(elem)):
+                    self.__opts[self.sigz(elem)] = 'sigz o ' + self.__opts[elem]
+                    left.append(self.sigz(elem))
+
+    cpdef tuple sigx(self, tuple t):
+        cdef int q = self.__q
+        return (t[0]*-1,t[0]+t[1],t[0]*q*-1+t[2])
+
+    cpdef tuple sigy(self, tuple t):
+        cdef int q = self.__q
+        return (t[0]+t[1],t[1]*-1,t[1]*q+t[2])
+
+    cpdef tuple sigz(self, tuple t):
+        cdef int q = self.__q
+        return (t[0]+t[2]*q, t[1]-t[2]*q,t[2]*-1)
+
+    cpdef order(self):
+        return len(self.__opts)
+
+    cpdef elements(self):
+        return self.__opts
+
+    def __str__(self):
+        cdef list l = sorted(self.__opts.values(),key=lambda k: len(k))
+        cdef bytes string = bytes()
+        for elem in l:
+            string += bytes(elem + '\n')
+        return string[:-1]
+

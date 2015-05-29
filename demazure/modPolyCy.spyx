@@ -141,13 +141,16 @@ cdef class ModPoly:
         # go through all coeffs in this polynomial
         for elem in self.__coeffs:
             if rhs.__coeffs.has_key(elem):
-                coeffs[elem] = self.__coeffs[elem]+rhs.__coeffs[elem] % self.__mod
+                coeffs[elem] = (self.__coeffs[elem]+rhs.__coeffs[elem]) % self.__mod
             else:
                 coeffs[elem] = self.__coeffs[elem]
         # then iterate through all coeffs in rhs
         for elem in rhs.__coeffs:
             if not coeffs.has_key(elem):
                 coeffs[elem] = rhs.__coeffs[elem]
+        for elem in coeffs.keys():
+            if coeffs[elem] == 0:
+                del coeffs[elem]
         return ModPoly(self.__mod, coeffs)
 
     def __sub__(self, ModPoly rhs):
@@ -157,27 +160,36 @@ cdef class ModPoly:
         # go through all coeffs in this polynomial
         for elem in self.__coeffs:
             if rhs.__coeffs.has_key(elem):
-                coeffs[elem] = self.__coeffs[elem] - rhs.__coeffs[elem] % self.__mod
+                coeffs[elem] = (self.__coeffs[elem] - rhs.__coeffs[elem]) % self.__mod
             else:
                 coeffs[elem] = self.__coeffs[elem]
         # then iterate through all coeffs in rhs
         for elem in rhs.__coeffs:
             if not coeffs.has_key(elem):
-                coeffs[elem] = -1*rhs.__coeffs[elem] % self.__mod
+                coeffs[elem] = (-1*rhs.__coeffs[elem]) % self.__mod
+        for elem in coeffs.keys():
+            if coeffs[elem] == 0:
+                del coeffs[elem]
         return ModPoly(self.__mod, coeffs)
 
-    def __mul__(self, int rhs):
+    def __mul__(self, rhs):
         cdef dict coeffs = dict()
         cdef tuple elem
+        rhs = rhs % self.__mod
         for elem in self.__coeffs:
-            coeffs[elem] = self.__coeffs[elem]*rhs % self.__mod
+            coeffs[elem] = (self.__coeffs[elem]*rhs) % self.__mod
+            if coeffs[elem] % self.__mod == 0:
+                del coeffs[elem]
         return ModPoly(self.__mod, coeffs)
 
-    def __div__(self, int rhs):
+    def __div__(self, rhs):
         cdef dict coeffs = dict()
         cdef tuple elem
+        rhs = rhs % self.__mod
         for elem in self.__coeffs:
-            coeffs[elem] = self.__coeffs[elem]*invert(rhs, self.__mod) % self.__mod
+            coeffs[elem] = (self.__coeffs[elem]*invert(rhs, self.__mod)) % self.__mod
+            if coeffs[elem] % self.__mod == 0:
+                del coeffs[elem]
         return ModPoly(self.__mod, coeffs)
 
     def __richcmp__(self, ModPoly rhs, int op):
@@ -207,6 +219,9 @@ cdef class ModPoly:
         for elem in rhs.__coeffs:
             if not self.__coeffs.has_key(elem):
                 self.__coeffs[elem] = rhs.__coeffs[elem]
+        for key in self.__coeffs.keys():
+            if self.__coeffs[key] == 0:
+                del self.__coeffs[key]
         
         self.__valTable = dict()
         self.__generateValues(self.__valTable, self.__coeffs)
@@ -226,7 +241,10 @@ cdef class ModPoly:
                 self.__coeffs[elem] %= self.__mod
         for elem in rhs.__coeffs:
             if not self.__coeffs.has_key(elem):
-                self.__coeffs[elem] = -1*rhs.__coeffs[elem] % self.__mod
+                self.__coeffs[elem] = (-1*rhs.__coeffs[elem]) % self.__mod
+        for key in self.__coeffs.keys():
+            if self.__coeffs[key] == 0:
+                del self.__coeffs[key]
         
         self.__valTable = dict()
         self.__generateValues(self.__valTable, self.__coeffs)
@@ -235,11 +253,15 @@ cdef class ModPoly:
             self.__generatePartial(part)
         return self
 
-    def __imul__(self, int rhs):
+    def __imul__(self, rhs):
         cdef tuple elem
+        rhs = rhs % self.__mod
         for elem in self.__coeffs:
             self.__coeffs[elem] *= rhs
             self.__coeffs[elem] %= self.__mod
+        for key in self.__coeffs.keys():
+            if self.__coeffs[key] == 0:
+                del self.__coeffs[key]
 
         self.__valTable = dict()
         self.__generateValues(self.__valTable, self.__coeffs)
@@ -248,11 +270,15 @@ cdef class ModPoly:
             self.__generatePartial(part)
         return self
 
-    def __idiv__(self, int rhs):
+    def __idiv__(self, rhs):
         cdef tuple elem
+        rhs = rhs % self.__mod
         for elem in self.__coeffs:
             self.__coeffs[elem] *= invert(rhs, self.__mod)
             self.__coeffs[elem] %= self.__mod
+        for key in self.__coeffs.keys():
+            if self.__coeffs[key] == 0:
+                del self.__coeffs[key]
 
         self.__valTable = dict()
         self.__generateValues(self.__valTable, self.__coeffs)
@@ -260,6 +286,12 @@ cdef class ModPoly:
         for part in self.__partials:
             self.__generatePartial(part)
         return self
+
+    def __hash__(self):
+        return str(self.__valTable).__hash__()
+
+    def __str__(self):
+        return str(self.polynomial())
 
     cpdef polynomial(self):
         poly = 0
