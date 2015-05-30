@@ -77,3 +77,37 @@ cdef class specGroup:
             string += bytes(elem + '\n')
         return string[:-1]
 
+cdef int p = 5
+cdef int m = 2
+g = specGroup(p,m)
+cdef int i
+cdef int j
+cdef int k
+cdef dict d 
+cdef dict diff = {}
+cdef list left
+cdef list tmp
+
+for i in xrange(p):
+    for j in xrange(p):
+        for k in xrange(p):
+            d = {(i,j,k): 0}
+            left = [(i,j,k)]
+            while len(left) != 0:
+                tmp, left = left, []
+                for elem in g.elements().keys():
+                    for item in tmp:
+                        term1 = elem[0](item[0], item[1], item[2])
+                        term2 = elem[1](item[0], item[1], item[2])
+                        term3 = elem[2](item[0], item[1], item[2])
+                        if not d.has_key((term1, term2, term3)):
+                            d[(term1, term2, term3)] = 0
+                            left.append((term1, term2, term3))
+            if len(d) < p**3-1 and len(d) > 0:
+                if not diff.has_key(len(d)):
+                    diff[len(d)] = [(i,j,k)]
+                else:
+                    diff[len(d)].append((i,j,k))
+                #print str((i,j,k)) + ': ' + str(len(d))
+for item in diff:
+    print str(item) + ': ' + str(diff[item])
